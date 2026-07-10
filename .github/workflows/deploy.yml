@@ -1,0 +1,133 @@
+name: Deploy GEOFlow
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action'
+        required: true
+        default: 'deploy'
+        type: choice
+        options:
+          - deploy
+          - restart
+          - logs
+
+env:
+  PHP_VERSION: '8.4'
+  NODE_VERSION: '22'
+
+jobs:
+  deploy:
+    name: Deploy GEOFlow
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: gd, mbstring, pdo_pgsql, pcntl, zip, redis
+          coverage: none
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Configure composer mirror
+        run: composer config -g repo.packagist composer https://mirrors.aliyun.com/composer/
+
+      - name: Install dependencies
+        run: |
+          composer install --no-interaction --prefer-dist --optimize-autoloader
+          npm ci --include=dev
+          npm run build
+
+      - name: Generate APP_KEY
+        run: php artisan key:generate --force
+
+      - name: Run migrations
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: ${{ vars.DB_HOST }}
+          DB_PORT: ${{ vars.DB_PORT }}
+          DB_DATABASE: ${{ vars.DB_DATABASE }}
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          CACHE_DRIVER: redis
+          REDIS_HOST: ${{ vars.REDIS_HOST }}
+          REDIS_PORT: ${{ vars.REDIS_PORT }}
+        run: php artisan migrate --force --seed
+
+      - name: Build assets
+        run: npm run build && php artisan optimize:clear
+
+      - name: Deploy via RSYNC
+        if: github.event_name == 'push'
+        uses: burnett01/rsync-deployments@6.0.0
+        with:
+          switches: -avzr --delete
+          path: ./
+          remote_path: ${{ vars.DEPLOY_PATH }}
+          host: ${{ vars.DEPLOY_HOST }}
+          user: ${{ vars.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Restart service
+        if: github.event_name == 'push'
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ vars.DEPLOY_HOST }}
+          username: ${{ vars.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd ${{ vars.DEPLOY_PATH }}
+            docker compose down || true
+            docker compose up -d --build
+            sleep 10
+            docker compose logs --tail=20
+
+  codespace-setup:
+    name: Setup Codespace Dev Environment
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    container: ubuntu:latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Docker Compose
+        run: |
+          apt-get update && apt-get install -y docker.io docker-compose curl
+          service docker start
+
+      - name: Start services
+        run: |
+          cd ./.devcontainer 2>/dev/null || .
+          docker compose up -d postgres redis || echo 'No docker-compose found, skipping'
+
+      - name: Setup environment
+        run: |
+          cp .env.example .env 2>/dev/null || echo 'No .env.example'
+          sed -i 's|APP_URL=https://your-domain.com|APP_URL=http://localhost:18080|' .env 2>/dev/null || true
+          sed -i 's/APP_ENV=production/APP_ENV=local/' .env 2>/dev/null || true
+          sed -i 's/APP_DEBUG=false/APP_DEBUG=true/' .env 2>/dev/null || true
+
+      - name: Install PHP deps
+        run: |
+          composer install --no-interaction || echo 'composer install skipped'
+
+      - name: Init GEOFlow
+        run: |
+          php artisan key:generate --force 2>/dev/null || echo 'artisan not available'
+          php artisan migrate --force 2>/dev/null || echo 'migrate skipped'
+          php artisan geoflow:install --force 2>/dev/null || echo 'install skipped'
+          echo '鉁?GEOFlow ready at http://localhost:18080'
+          echo '馃懁 admin / password'
