@@ -1,9 +1,6 @@
 name: Deploy GEOFlow
 
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
+on: [push, workflow_dispatch]
 
 env:
   PHP_VERSION: '8.4'
@@ -37,7 +34,6 @@ jobs:
       - name: Create .env file
         run: |
           cp .env.example .env
-          # Disable broadcasting (not needed in dev/Codespaces)
           echo "BROADCAST_DRIVER=log" >> .env
           echo "PUSHER_APP_ID=" >> .env
           echo "PUSHER_APP_KEY=" >> .env
@@ -51,18 +47,16 @@ jobs:
           echo "VITE_PUSHER_PORT=443" >> .env
           echo "VITE_PUSHER_SCHEME=https" >> .env
           echo "VITE_PUSHER_APP_CLUSTER=mt1" >> .env
-          # Local settings
           echo "APP_ENV=local" >> .env
           echo "APP_DEBUG=true" >> .env
           echo "APP_URL=http://localhost:18080" >> .env
           echo "CACHE_STORE=file" >> .env
           echo "QUEUE_CONNECTION=sync" >> .env
           echo "SESSION_DRIVER=file" >> .env
-          # Use SQLite for quick setup (no DB server needed)
           echo "DB_CONNECTION=sqlite" >> .env
           echo "DB_DATABASE=database/database.sqlite" >> .env
 
-      - name: Install PHP dependencies (skip scripts)
+      - name: Install PHP dependencies
         run: composer install --no-interaction --prefer-dist --no-scripts
 
       - name: Install Node dependencies
@@ -73,6 +67,7 @@ jobs:
 
       - name: Setup SQLite database
         run: |
+          mkdir -p database
           touch database/database.sqlite
           php artisan key:generate --force
           php artisan migrate --force
@@ -81,14 +76,10 @@ jobs:
         run: php artisan geoflow:install --force || true
 
       - name: Start dev server
-        run: php artisan serve --port=18080 &
-          sleep 3
-          echo "鉁?GEOFlow server is running at http://localhost:18080"
-          echo "馃懁 Admin account: admin / password"
-
-      - name: Health check
         run: |
-          sleep 2
-          curl -s -o /dev/null -w "%{http_code}" http://localhost:18080 || echo "200"
+          php artisan serve --port=18080 &
+          sleep 5
+          curl -s -o /dev/null -w "HTTP %{http_code}" http://localhost:18080
           echo ""
-          echo "馃寪 GEOFlow is ready!"
+          echo "GEOFlow ready at http://localhost:18080"
+          echo "Admin: admin / password"
