@@ -1,0 +1,42 @@
+{
+  "name": "GEOFlow Dev Environment",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "enableNonRootDocker": "true",
+      "moby": "false"
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22",
+      "installTools": true
+    },
+    "ghcr.io/devcontainers/features/php:1": {
+      "version": "8.4"
+    },
+    "ghcr.io/devcontainers-contrib/features/github-cli:1": {
+      "version": "latest"
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+  "portsAttributes": {
+    "18080": {
+      "label": "GEOFlow App",
+      "onAutoForward": "openPreview"
+    },
+    "15432": {
+      "label": "PostgreSQL",
+      "onAutoForward": "notify"
+    },
+    "16379": {
+      "label": "Redis",
+      "onAutoForward": "notify"
+    }
+  },
+  "forwardPorts": [18080, 15432, 16379],
+  "customizations": {
+    "codespaces": {
+      "openFiles": ["README.md", "docker-compose.yml"]
+    }
+  }
+}
