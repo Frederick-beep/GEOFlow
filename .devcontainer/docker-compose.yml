@@ -1,0 +1,58 @@
+name: geoflow-codespaces
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: geoflow-postgres
+    environment:
+      POSTGRES_DB: geo_flow
+      POSTGRES_USER: geo_user
+      POSTGRES_PASSWORD: geo_password
+    ports:
+      - "127.0.0.1:15432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U geo_user -d geo_flow"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: geoflow-redis
+    ports:
+      - "127.0.0.1:16379:6379"
+    restart: unless-stopped
+
+  app:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    container_name: geoflow-app
+    working_dir: /var/www/html
+    env_file:
+      - ../.env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_DATABASE: geo_flow
+      DB_USERNAME: geo_user
+      DB_PASSWORD: geo_password
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      APP_PORT: "18080"
+    ports:
+      - "18080:18080"
+    volumes:
+      - ..:/var/www/html
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
